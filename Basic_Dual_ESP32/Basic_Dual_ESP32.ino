@@ -1,4 +1,50 @@
+/*
+ * This is a simple USB only GPS code for AgOpen GPS
+ * It can used as single anttena with IMU and send PANDA to AgOpen
+ * Or use two F9P and send PAOGI to AgOpen
+ */
 
+/************************* User Settings *************************/
+#define deBugPin   23
+bool deBug = false;
+
+//Serial Ports
+#define SerialGPS Serial1   //1st F9P 10hz GGA,VTG + 1074,1084,1094,1124,1230,4072.0
+#define RX1   27
+#define TX1   16
+#define SerialGPS2 Serial2  //2nd F9P 10hz relPos
+#define RX2   25
+#define TX2   17
+const int32_t baudGPS = 115200;
+
+#define SerialAOG Serial    //AgOpen / USB
+const int32_t baudAOG = 115200; 
+ 
+//is the GGA the second sentence?
+const bool isLastSentenceGGA = true;
+
+//I2C pins, SDA = 21, SCL = 22
+//Note - Pullup resistors will be needed on both SDA & SCL pins
+
+//Swap BNO08x roll & pitch?
+const bool swapRollPitch = false;
+//const bool swapRollPitch = true;
+
+//BNO08x, time after last GPS to load up IMU ready data for the next Panda takeoff
+const uint16_t IMU_DELAY_TIME = 90; //Best results seem to be 90-95ms
+uint32_t IMU_lastTime = IMU_DELAY_TIME;
+uint32_t IMU_currentTime = IMU_DELAY_TIME;
+
+//BNO08x, how offen should we get data from IMU (The above will just grab this data without reading IMU)
+const uint16_t GYRO_LOOP_TIME = 10;  
+uint32_t lastGyroTime = GYRO_LOOP_TIME;
+
+//CMPS14, how long should we wait with GPS before reading data from IMU then takeoff with Panda
+const uint16_t CMPS_DELAY_TIME = 4;  //Best results seem to be around 5ms
+uint32_t gpsReadyTime = CMPS_DELAY_TIME;
+
+/*****************************************************************/
+ 
 #include "zNMEAParser.h"
 #include <Wire.h>
 #include "BNO08x_AOG.h"
@@ -7,8 +53,8 @@
 bool useCMPS = false;
 bool useBNO08x = false;
 bool useDual = false;
-bool dualReady = false;
-bool dualReady1 = false;
+bool GGAReady = false;
+bool relPosReady = false;
 
 //CMPS always x60
 #define CMPS14_ADDRESS 0x60 
@@ -37,37 +83,8 @@ unsigned long ackWait = millis();
 byte ackPacket[72] = {0xB5, 0x62, 0x01, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 int i = 0;
 
-/************************* User Settings *************************/
-//Serial Ports
-#define SerialGPS2 Serial2  //2nd F9P 10hz relPos
-#define SerialGPS Serial1   //1st F9P 10hz GGA,VTG + 1074,1084,1094,1124,1230,4072.0
-#define SerialAOG Serial    //AgOpen / USB 
- 
-//is the GGA the second sentence?
-const bool isLastSentenceGGA = true;
-
-const int32_t baudAOG = 115200;
-const int32_t baudGPS = 115200;
-
-#define RX1   27
-#define TX1   16
-
-#define RX2   25
-#define TX2   17
-
-/*****************************************************************/
-
  /* A parser is declared with 3 handlers at most */
 NMEAParser<2> parser;
-
-//how long after last sentence should imu sample
-const uint16_t IMU_DELAY_TIME = 90;  
-uint32_t lastTime = IMU_DELAY_TIME;
-uint32_t currentTime = IMU_DELAY_TIME;
-
-//how long after last time should imu sample again
-const uint16_t GYRO_LOOP_TIME = 10;  
-uint32_t lastGyroTime = GYRO_LOOP_TIME, lastPrint;
 
 bool isTriggered = false, blink;
 
@@ -84,8 +101,9 @@ int16_t bno08xHeading10x = 0;
 void setup()
 {
     SerialAOG.begin(baudAOG);
+    SerialGPS.setRxBufferSize(512);
     SerialGPS.begin(baudGPS, SERIAL_8N1, RX1, TX1);
-    SerialGPS.setRxBufferSize(150);
+    SerialGPS.setRxBufferSize(300);
     //GPS2 Started below
 
     //the dash means wildcard
@@ -94,27 +112,34 @@ void setup()
     parser.addHandler("G-VTG", VTG_Handler);
 
     Wire.begin();
-
+    delay(500);
     pinMode(13, OUTPUT);
-
+    pinMode(deBugPin, INPUT_PULLUP);
+    deBug = !digitalRead(deBugPin);
+    Serial.println();
+    
     //test if CMPS working
     uint8_t error;
-    //    Serial.println("Checking for CMPS14");
+    if(deBug) Serial.println("Checking for CMPS14");
     Wire.beginTransmission(CMPS14_ADDRESS);
     error = Wire.endTransmission();
 
     if (error == 0)
     {
-        //      Serial.println("Error = 0");
-        //      Serial.print("CMPS14 ADDRESs: 0x");
-        //      Serial.println(CMPS14_ADDRESS, HEX);
-        //      Serial.println("CMPS14 Ok.");
+        if(deBug) {
+          Serial.println("Error = 0");
+          Serial.print("CMPS14 ADDRESs: 0x");
+          Serial.println(CMPS14_ADDRESS, HEX);
+          Serial.println("CMPS14 Ok.");
+        } 
         useCMPS = true;
     }
     else
     {
-        //      Serial.println("Error = 4");
-        //      Serial.println("CMPS not Connected or Found"); 
+        if(deBug) {
+          Serial.println("Error = 4");
+          Serial.println("CMPS not Connected or Found"); 
+        }
     }
 
     if (!useCMPS)
@@ -122,19 +147,21 @@ void setup()
         for (int16_t i = 0; i < nrBNO08xAdresses; i++)
         {
             bno08xAddress = bno08xAddresses[i];
-
-            //        Serial.print("\r\nChecking for BNO08X on ");
-            //        Serial.println(bno08xAddress, HEX);
+          if(deBug) {
+            Serial.print("\r\nChecking for BNO08X on ");
+            Serial.println(bno08xAddress, HEX);
+          }
             Wire.beginTransmission(bno08xAddress);
             error = Wire.endTransmission();
 
             if (error == 0)
             {
-                //          Serial.println("Error = 0");
-                //          Serial.print("BNO08X ADDRESs: 0x");
-                //          Serial.println(bno08xAddress, HEX);
-                //          Serial.println("BNO08X Ok.");
-
+              if(deBug) {
+                Serial.println("Error = 0");
+                Serial.print("BNO08X ADDRESs: 0x");
+                Serial.println(bno08xAddress, HEX);
+                Serial.println("BNO08X Ok.");
+              }
                           // Initialize BNO080 lib        
                 if (bno08x.begin(bno08xAddress))
                 {
@@ -158,18 +185,20 @@ void setup()
             }
                     else
                     {
-                        //              Serial.println("BNO08x init fails!!");
+                        if(deBug) Serial.println("BNO08x init fails!!");
                     }
                 }
                 else
                 {
-                    //            Serial.println("BNO080 not detected at given I2C address.");
+                    if(deBug) Serial.println("BNO080 not detected at given I2C address.");
                 }
             }
             else
             {
-                //          Serial.println("Error = 4");
-                //          Serial.println("BNO08X not Connected or Found"); 
+                if(deBug) {
+                  Serial.println("Error = 4");
+                  Serial.println("BNO08X not Connected or Found"); 
+                }    
             }
         }
     }
@@ -180,8 +209,11 @@ void setup()
       SerialGPS2.setRxBufferSize(150);
       //useDual = true;
     }
-    
-    delay(1000);
+    Serial.println();
+    Serial.println("Basic Dual or Single GPS for AgOpenGPS"); 
+    Serial.println("Setup done, waiting for GPS Data....."); 
+    Serial.println();
+    delay(2000);
 }
 
 void loop()
@@ -194,31 +226,50 @@ void loop()
     if (SerialAOG.available())
         SerialGPS.write(SerialAOG.read());
 
-    currentTime = millis();
+    deBug = !digitalRead(deBugPin);
+    IMU_currentTime = millis();
 
 if(!useDual){
-    if (isTriggered && currentTime - lastTime >= IMU_DELAY_TIME)
-    {
-        //read the imu
+  
+  if (useBNO08x)
+    {  
+      if (isTriggered && IMU_currentTime - IMU_lastTime >= IMU_DELAY_TIME)
+      {
+        //Load up BNO08x data from gyro loop ready for takeoff
         imuHandler();
 
-        //reset the timer for imu reading
+        //reset the timer 
         isTriggered = false;
-        currentTime = millis();
-    }     
-
-    if (currentTime - lastGyroTime >= GYRO_LOOP_TIME)
-    {
-        GyroHandler(currentTime - lastGyroTime);
+      }      
     }
-}
+
+  if (useCMPS)
+    { 
+      if (isTriggered && IMU_currentTime - gpsReadyTime >= CMPS_DELAY_TIME)
+      {
+        imuHandler(); //Get data from CMPS (Heading, Roll, Pitch) and load up ready for takeoff
+        BuildPANDA(); //Send Panda
+
+        //reset the timer 
+        isTriggered = false;
+      }
+    }  
+
+  IMU_currentTime = millis();    
+
+  if (IMU_currentTime - lastGyroTime >= GYRO_LOOP_TIME)
+    {
+        GyroHandler(IMU_currentTime - lastGyroTime);
+    }
+    
+}//End Not Dual
 
 if(!useCMPS && !useBNO08x){
 
-if(dualReady == true && dualReady1 == true) {
+if(GGAReady == true && relPosReady == true) {
   BuildPANDA();
-  dualReady = false;
-  dualReady1 = false;
+  GGAReady = false;
+  relPosReady = false;
 }
   
     if (SerialGPS2.available()) {
@@ -248,12 +299,12 @@ void checksum() {
   }
 
   if (CK_A == ackPacket[70] && CK_B == ackPacket[71]) {
-  //Serial.println("ACK Received! ");
+  if(deBug) Serial.println("ACK Received! ");
     useDual = true;
     relPosDecode();
   }
   else {
-  //Serial.println("ACK Checksum Failure: ");
+  if(deBug) Serial.println("ACK Checksum Failure: ");
   }
   byte ackPacket[72] = {0xB5, 0x62, 0x01, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 }

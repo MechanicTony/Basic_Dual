@@ -71,6 +71,11 @@ double p = sqrt(baseline*baseline-relPosD*relPosD);
   else rollDual = rollDual * 0.9;
  
   imuHandler();
-  if (carrSoln == 2) dualReady1 = true;
-  //Serial.println("Dual Ready");
+  if (carrSoln == 2){
+    relPosReady = true;
+    if(deBug) Serial.println("Dual Ready");
+  }
+  else{
+    if(deBug) Serial.println("Dual Accuracy Not Good");
+  }
 }

@@ -68,9 +68,16 @@ void GGA_Handler() //Rec'd GGA
     else digitalWrite(13, LOW);
     blink = !blink;
 
-    //Serial.println("GGA Ready");
-    if (isLastSentenceGGA && !useDual) BuildPANDA();
-    if (isLastSentenceGGA && useDual) dualReady = true;
+   if(deBug) Serial.println("GGA Ready");
+   
+   if (isLastSentenceGGA){
+      if (useCMPS){
+        gpsReadyTime = millis();
+        isTriggered = true;
+      }
+      else if (useDual) GGAReady = true;
+      else BuildPANDA(); 
+    }
 }
 
 void VTG_Handler()
@@ -81,9 +88,16 @@ void VTG_Handler()
     //vtg Speed knots
     if (parser.getArg(4, speedKnots));
 
-    //Serial.println("VTG Ready");
-    if (!isLastSentenceGGA && !useDual) BuildPANDA();
-    if (!isLastSentenceGGA && useDual) dualReady = true;
+   if(deBug) Serial.println("VTG Ready");
+    
+   if (!isLastSentenceGGA){
+      if (useCMPS){
+        gpsReadyTime = millis();
+        isTriggered = true;
+      }
+      else if (useDual) GGAReady = true;
+      else BuildPANDA(); 
+    }
 }
 
 void imuHandler()
@@ -92,28 +106,42 @@ void imuHandler()
 
     if (useCMPS)
     {
-        //the heading x10
-        Wire.beginTransmission(CMPS14_ADDRESS);
-        Wire.write(0x02);
-        Wire.endTransmission();
+      //roll
+      Wire.beginTransmission(CMPS14_ADDRESS);
+      Wire.write(0x1C);
+      Wire.endTransmission();
 
-        Wire.requestFrom(CMPS14_ADDRESS, 3);
-        while (Wire.available() < 3);
+      Wire.requestFrom(CMPS14_ADDRESS, 2);
+      while (Wire.available() < 2);
 
-        temp = Wire.read() << 8 | Wire.read();
-        itoa(temp, imuHeading, 10);
+      roll = int16_t(Wire.read() << 8 | Wire.read());
 
-        //3rd byte pitch
-        int8_t pitch = Wire.read();
-        itoa(pitch, imuPitch, 10);
+      //Complementary filter
+      rollSum = roll;
+    
+      //the heading x10
+      Wire.beginTransmission(CMPS14_ADDRESS);
+      Wire.write(0x02);
+      Wire.endTransmission();
 
-        //the roll x10
-        temp = (int16_t)rollSum;
-        itoa(temp, imuRoll, 10);
+      Wire.requestFrom(CMPS14_ADDRESS, 3);
+      while (Wire.available() < 3);
 
-        //YawRate
-        temp = (int16_t)gyroSum;
-        itoa(temp, imuYawRate, 10);
+      temp = Wire.read() << 8 | Wire.read();
+      itoa(temp, imuHeading, 10);
+
+      //3rd byte pitch
+      int8_t pitch = Wire.read();
+      itoa(pitch, imuPitch, 10);
+
+      //the roll x10
+      temp = (int16_t)rollSum;
+      itoa(temp, imuRoll, 10);
+
+      //YawRate
+      temp = (int16_t)gyroSum;
+      itoa(temp, imuYawRate, 10);
+
     }
     else if (useBNO08x)
     {
@@ -131,10 +159,9 @@ void imuHandler()
 
         //YawRate
         temp = (int16_t)gyroSum;
-        temp = temp * 0.1; 
         itoa(temp, imuYawRate, 10);
     }
-        else if (useDual)
+    else if (useDual)
     {
         //Heading
         dtostrf(heading, 3, 1, imuHeading);
@@ -217,7 +244,7 @@ void BuildPANDA(void)
 
     strcat(nme, "\r\n");
 
-    lastTime = millis();
+    IMU_lastTime = millis();
     isTriggered = true;
 
     //SerialGPS.print(nme);
