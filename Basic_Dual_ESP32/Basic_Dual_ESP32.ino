@@ -1,11 +1,17 @@
 /*
- * This is a simple USB only GPS code for AgOpen GPS
- * It can used as single anttena with IMU and send PANDA to AgOpen
+ * This is a simple GPS code for AgOpen GPS
+ * It can used as single antenna with IMU and send PANDA to AgOpen
  * Or use two F9P and send PAOGI to AgOpen
  */
+ 
+#include "zNMEAParser.h"
+#include <Wire.h>
+#include "BNO08x_AOG.h"
+#include <Ethernet.h>
+#include <EthernetUdp.h>
 
 /************************* User Settings *************************/
-#define deBugPin   23
+#define deBugPin   22
 bool deBug = false;
 
 //Serial Ports
@@ -26,6 +32,22 @@ const bool isLastSentenceGGA = true;
 //I2C pins, SDA = 21, SCL = 22
 //Note - Pullup resistors will be needed on both SDA & SCL pins
 
+//Ethernet
+//SPI config: MOSI 23 / MISO 19 / CLK18 / CS5, GND, 3.3V
+byte Eth_CS_PIN = 5;  //CS PIN with SPI Ethernet hardware W 5500  
+byte Eth_myip[4] = { 192, 168, 1, 80 }; //IP address to send UDP data to
+byte mac[] = {0x90, 0xA2, 0xDA, 0x10, 0xB3, 0x1B}; // original
+byte Eth_ipDest_ending = 255;        //ending of IP address to send UDP data to
+unsigned int portMy = 5544;          //this is port of this module
+unsigned int AOGNtripPort = 2233;    //port NTRIP data from AOG comes in
+unsigned int portDestination = 9999; //Port of AOG that listens
+bool Ethernet_running = false;
+char Eth_NTRIP_packetBuffer[512];    // buffer for receiving and sending data
+
+IPAddress Eth_ipDestination;
+EthernetUDP Eth_udpPAOGI;
+EthernetUDP Eth_udpNtrip;
+
 //Swap BNO08x roll & pitch?
 const bool swapRollPitch = false;
 //const bool swapRollPitch = true;
@@ -42,12 +64,6 @@ uint32_t lastGyroTime = GYRO_LOOP_TIME;
 //CMPS14, how long should we wait with GPS before reading data from IMU then takeoff with Panda
 const uint16_t CMPS_DELAY_TIME = 4;  //Best results seem to be around 5ms
 uint32_t gpsReadyTime = CMPS_DELAY_TIME;
-
-/*****************************************************************/
- 
-#include "zNMEAParser.h"
-#include <Wire.h>
-#include "BNO08x_AOG.h"
 
 // Booleans to see if we are using CMPS or BNO08x or Dual
 bool useCMPS = false;
@@ -207,9 +223,57 @@ void setup()
       SerialGPS2.setRxBufferSize(150);
       //useDual = true;
     }
+
+//Ethernet
+  Ethernet.init(Eth_CS_PIN);
+  //  delay(50);
+  Ethernet.begin(mac, Eth_myip);
+  delay(200);
+  // Check for Ethernet hardware present
+  if (Ethernet.hardwareStatus() == EthernetNoHardware) {
+    Serial.println("Ethernet shield was not found.");
+    Ethernet_running = false;
+  }
+  else {
+    Serial.println("Ethernet hardware found, checking for connection");
+    if (Ethernet.linkStatus() == LinkOFF) {
+      Serial.println("Ethernet cable is not connected.");
+      Ethernet_running = false;
+    }
+    else {
+      Serial.println("Ethernet status OK");
+      
+      for (byte n = 0; n < 3; n++) {
+          Eth_ipDestination[n] = Eth_myip[n];
+        }
+        Eth_ipDestination[3] = Eth_ipDest_ending;
+        
+      Ethernet_running = true;
+      Serial.print("Ethernet IP of roof module: "); Serial.println(Ethernet.localIP());
+      Serial.print("Ethernet sending to IP: "); Serial.println(Eth_ipDestination);
+      //init UPD Port sending to AOG
+      if (Eth_udpPAOGI.begin(portMy)) // portMy  portDestination
+      {
+        Serial.print("Ethernet UDP sending from port: ");
+        Serial.println(portMy);
+        Serial.print("Ethernet UDP sending to port: ");
+        Serial.println(portDestination);
+      }
+      //init UPD Port getting NTRIP from AOG
+      if (Eth_udpNtrip.begin(AOGNtripPort)) // AOGNtripPort
+      {
+        Serial.print("Ethernet NTRIP UDP listening to port: ");
+        Serial.println(AOGNtripPort);
+      }
+    } 
+//    Serial.println();
+  }
+  
     Serial.println();
     Serial.println("Basic Dual or Single GPS for AgOpenGPS"); 
     Serial.println("Setup done, waiting for GPS Data....."); 
+    if (Ethernet_running) Serial.println("Sending Data Via Ethernet"); 
+    else Serial.println("Sending Data Via USB"); 
     Serial.println();
     delay(2000);
 }
@@ -223,6 +287,8 @@ void loop()
     //Pass NTRIP etc to GPS
     if (SerialAOG.available())
         SerialGPS.write(SerialAOG.read());
+
+    if (Ethernet_running) doEthUDPNtrip();
 
     deBug = !digitalRead(deBugPin);
     IMU_currentTime = millis();
@@ -288,6 +354,8 @@ if(GGAReady == true && relPosReady == true) {
 
 } //Loop
 
+//**************************************************************************
+
 void checksum() {
   CK_A = 0;
   CK_B = 0;
@@ -306,3 +374,13 @@ void checksum() {
   }
   byte ackPacket[72] = {0xB5, 0x62, 0x01, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 }
+
+//**************************************************************************
+
+void doEthUDPNtrip() {
+  unsigned int packetLenght = Eth_udpNtrip.parsePacket();
+  if (packetLenght > 0) {
+    Eth_udpNtrip.read(Eth_NTRIP_packetBuffer, packetLenght);
+    SerialGPS.write(Eth_NTRIP_packetBuffer, packetLenght);
+  }  
+} 
