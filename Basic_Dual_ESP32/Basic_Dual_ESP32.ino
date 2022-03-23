@@ -169,10 +169,8 @@ void setup()
 
             // Use gameRotationVector
             bno08x.enableGyro(GYRO_LOOP_TIME);
-            //bno08x.enableGameRotationVector(GYRO_LOOP_TIME-1);
-            //bno08x.configureGyroIntegratedRotationVector(0x0207, GYRO_LOOP_TIME-1, 5, 0.02);
-            bno08x.enableGyroIntegratedRotationVector(GYRO_LOOP_TIME-1); //Send data update every REPORT_INTERVAL in ms for BNO085, looks like this cannot be identical to the other reports for it to work...
-                        
+            bno08x.enableGameRotationVector(GYRO_LOOP_TIME-1);
+                       
             // Retrieve the getFeatureResponse report to check if Rotation vector report is corectly enable
             if (bno08x.getFeatureResponseAvailable() == true)
             {
