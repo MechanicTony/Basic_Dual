@@ -228,7 +228,7 @@ void setup()
   Ethernet.init(Eth_CS_PIN);
   //  delay(50);
   Ethernet.begin(mac, Eth_myip);
-  delay(200);
+  delay(5000);
   // Check for Ethernet hardware present
   if (Ethernet.hardwareStatus() == EthernetNoHardware) {
     Serial.println("Ethernet shield was not found.");
