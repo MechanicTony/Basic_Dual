@@ -246,9 +246,15 @@ void BuildPANDA(void)
 
     IMU_lastTime = millis();
     isTriggered = true;
-
-    //SerialGPS.print(nme);
-    SerialAOG.print(nme);
+    
+    if (Ethernet_running) {
+        Eth_udpPAOGI.beginPacket(Eth_ipDestination, portDestination);
+        Eth_udpPAOGI.print(nme);
+        Eth_udpPAOGI.endPacket();
+      }
+      else{
+        SerialAOG.print(nme);
+      }
 }
 
 void CalculateChecksum(void)
