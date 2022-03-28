@@ -15,7 +15,7 @@
 bool deBug = false;
 
 //Serial Ports
-#define SerialGPS Serial1   //1st F9P 10hz GGA,VTG + 1074,1084,1094,1124,1230,4072.0
+#define SerialGPS Serial1   //1st F9P 10hz GGA,VTG + 1074,1084,1094,1230,4072.0
 #define RX1   27
 #define TX1   16
 #define SerialGPS2 Serial2  //2nd F9P 10hz relPos
@@ -228,27 +228,27 @@ void setup()
   Ethernet.init(Eth_CS_PIN);
   //  delay(50);
   Ethernet.begin(mac, Eth_myip);
-  delay(5000);
+  delay(3000);
   // Check for Ethernet hardware present
   if (Ethernet.hardwareStatus() == EthernetNoHardware) {
-    Serial.println("Ethernet shield was not found.");
+    Serial.println("Ethernet shield was not found, sending data via USB only.");
     Ethernet_running = false;
   }
   else {
     Serial.println("Ethernet hardware found, checking for connection");
     if (Ethernet.linkStatus() == LinkOFF) {
-      Serial.println("Ethernet cable is not connected.");
-      Ethernet_running = false;
+      Serial.println("Ethernet cable is not connected yet, sending data via USB & Ethernet UDP anyway.");
     }
     else {
-      Serial.println("Ethernet status OK");
-      
+      Serial.println("Ethernet connected, sending data via USB & Ethernet UDP");
+    }       
       for (byte n = 0; n < 3; n++) {
           Eth_ipDestination[n] = Eth_myip[n];
         }
         Eth_ipDestination[3] = Eth_ipDest_ending;
         
       Ethernet_running = true;
+      Serial.println();
       Serial.print("Ethernet IP of roof module: "); Serial.println(Ethernet.localIP());
       Serial.print("Ethernet sending to IP: "); Serial.println(Eth_ipDestination);
       //init UPD Port sending to AOG
@@ -265,15 +265,15 @@ void setup()
         Serial.print("Ethernet NTRIP UDP listening to port: ");
         Serial.println(AOGNtripPort);
       }
-    } 
+
 //    Serial.println();
   }
   
     Serial.println();
     Serial.println("Basic Dual or Single GPS for AgOpenGPS"); 
     Serial.println("Setup done, waiting for GPS Data....."); 
-    if (Ethernet_running) Serial.println("Sending Data Via Ethernet"); 
-    else Serial.println("Sending Data Via USB"); 
+    if (Ethernet_running) Serial.println("Sending Data Via Ethernet and USB"); 
+    else Serial.println("Sending Data Via USB Only"); 
     Serial.println();
     delay(2000);
 }

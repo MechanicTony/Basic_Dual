@@ -252,9 +252,9 @@ void BuildPANDA(void)
         Eth_udpPAOGI.print(nme);
         Eth_udpPAOGI.endPacket();
       }
-      else{
+
         SerialAOG.print(nme);
-      }
+
 }
 
 void CalculateChecksum(void)
