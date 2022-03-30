@@ -35,7 +35,7 @@ const bool isLastSentenceGGA = true;
 //Ethernet
 //SPI config: MOSI 23 / MISO 19 / CLK18 / CS5, GND, 3.3V
 byte Eth_CS_PIN = 5;  //CS PIN with SPI Ethernet hardware W 5500  
-byte Eth_myip[4] = { 192, 168, 1, 80 }; //IP address to send UDP data to
+byte Eth_myip[4] = { 192, 168, 1, 80 }; //IP address for this GPS module
 byte mac[] = {0x90, 0xA2, 0xDA, 0x10, 0xB3, 0x1B}; // original
 byte Eth_ipDest_ending = 255;        //ending of IP address to send UDP data to
 unsigned int portMy = 5544;          //this is port of this module
