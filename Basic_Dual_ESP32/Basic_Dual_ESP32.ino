@@ -226,7 +226,7 @@ void setup()
 
 //Ethernet
   Ethernet.init(Eth_CS_PIN);
-  //  delay(50);
+  delay(15000);   //Delay just to give switch or router a head start when on same power supply
   Ethernet.begin(mac, Eth_myip);
   delay(3000);
   // Check for Ethernet hardware present
